@@ -1,0 +1,98 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# Copyright (c) 2017-18 Richard Hull and contributors
+# See LICENSE.rst for details.
+
+import re
+import time
+import argparse
+import barometer
+
+from luma.led_matrix.device import max7219
+from luma.core.interface.serial import spi, noop
+from luma.core.render import canvas
+from luma.core.virtual import viewport
+from luma.core.legacy import text, show_message
+from luma.core.legacy.font import proportional, CP437_FONT, TINY_FONT, SINCLAIR_FONT, LCD_FONT
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+
+instruction = [{'type' : "", 'message': ""}];
+serial = spi(port=0, device=0, gpio=noop())
+
+device = max7219(serial, cascaded=4, block_orientation=90,
+                     rotate=0, blocks_arranged_in_reverse_order=False)
+# create matrix device
+print("Created device")
+
+@app.route("/roomstats", methods=["GET"])
+def getBaroStats():
+    temperature, pressure, humidity = barometer.readBME280All()
+    data = {"temperature": temperature, "pressure":pressure, "humdity": humidity}
+    return jsonify(data);
+
+@app.route("/greet", methods=["GET"])
+def greet():
+    data = {"temperature": 12, "pressure":100   , "humdity": 12}
+    return jsonify(data);
+
+@app.route("/matrix", methods=["POST"])
+def addAccountId():
+    type = request.json['type']
+    message = request.json['message']
+    character = request.json['character']
+    xcoord = request.json['xcoord']
+    ycoord =request.json['ycoord']
+    fontsel = request.json['font']
+    message2 = request.json['message2']
+    if fontsel == "TINY_FONT":
+        font = TINY_FONT;
+    if fontsel == "LCD_FONT":
+        font = LCD_FONT;
+    if fontsel == "CP437_FONT":
+        font = CP437_FONT
+    if fontsel == "SINCLAIR_FONT":
+        font = SINCLAIR_FONT;
+
+    print("received", message, character,xcoord,ycoord,fontsel)
+    data = {'type' : type, 'message': message}
+    startMessage(type, message,message2,character,xcoord,ycoord,font)
+    return jsonify(data)
+
+
+def startMessage(type,msg,msg2,character,xcoord,ycoord,font):
+    try:
+        fill = "white"
+        contrast = 0x05
+        device.contrast(contrast)
+
+        if (type == 'runner'):
+            print ("runner: ", msg)
+            show_message(device, msg, fill=fill, font=proportional(font))
+
+        if (type == 'fixed'):
+            print ("fixed: ", msg)
+            with canvas(device) as draw:
+                text(draw, (xcoord, ycoord), msg, fill="white", font=proportional(font))
+
+        if (type == 'character'):
+            print ("special: ", chr(character))
+            with canvas(device) as draw:
+                    text(draw, (xcoord, ycoord),  chr(character), fill="white", font=proportional(font))
+
+        if (type == 'special'):
+            print ("special: ", chr(character))
+            with canvas(device) as draw:
+                    text(draw, (0, 0), msg, fill="white", font=proportional(font))
+                    text(draw, (xcoord, ycoord), chr(character), fill="white", font=proportional(CP437_FONT))
+                    text(draw, (xcoord+8, 0), msg2, fill="white", font=proportional(font))
+
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+
+    app.run(host='0.0.0.0', debug=False)
